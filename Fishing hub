@@ -1,0 +1,1661 @@
+-- PART 1: UI
+do
+    if _G.BananaCatUI and type(_G.BananaCatUI.Destroy) == "function" then
+        pcall(_G.BananaCatUI.Destroy)
+    end
+
+    local Players = game:GetService("Players")
+    local TweenService = game:GetService("TweenService")
+    local UserInputService = game:GetService("UserInputService")
+    local LocalPlayer = Players.LocalPlayer
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+    local oldGui = PlayerGui:FindFirstChild("BananaCatHub")
+    if oldGui then oldGui:Destroy() end
+
+    local Config = {
+        AutoFishing = false,
+        AutoFishingQuest = false,
+        AutoSellFish = false,
+        AutoBuyBait = false,
+        SelectedRod = nil,
+        SelectedBait = nil,
+        SpeedBoost = false,
+        SpeedValue = 50,
+        AutoFarmLevel = false,
+        ESP = false,
+    }
+
+    local Connections = {}
+    local function track(c)
+        table.insert(Connections, c)
+        return c
+    end
+
+    local WHITE = Color3.fromRGB(255, 255, 255)
+    local BLUE = Color3.fromRGB(30, 130, 255)
+    local GREEN = Color3.fromRGB(50, 200, 100)
+    local RED = Color3.fromRGB(200, 50, 50)
+    local GRAY = Color3.fromRGB(100, 100, 100)
+    local ROW_BG = Color3.fromRGB(55, 55, 55)
+    local ROW_HOVER = Color3.fromRGB(70, 70, 70)
+
+    local function new(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props) do o[k] = v end
+        if parent then o.Parent = parent end
+        return o
+    end
+    local function corner(obj, r)
+        return new("UICorner", { CornerRadius = UDim.new(0, r) }, obj)
+    end
+    local function stroke(obj, color, transp, thick)
+        return new("UIStroke", {
+            Color = color, Transparency = transp, Thickness = thick,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        }, obj)
+    end
+    local function isPress(input)
+        return input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+    end
+    local function isMove(input)
+        return input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+    end
+
+    ---------------------------------------------------------------------
+    -- ScreenGui / Main / Shadow
+    ---------------------------------------------------------------------
+    local Gui = new("ScreenGui", {
+        Name = "BananaCatHub",
+        ResetOnSpawn = false,
+        DisplayOrder = 999,
+        IgnoreGuiInset = true,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    }, PlayerGui)
+
+    local Shadow = new("Frame", {
+        Name = "Shadow",
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.6,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(480, 380),
+        Position = UDim2.new(0.5, -236, 0.5, -186),
+        ZIndex = 0,
+    }, Gui)
+    corner(Shadow, 8)
+
+    local Main = new("Frame", {
+        Name = "Main",
+        BackgroundColor3 = Color3.fromRGB(40, 40, 40),
+        BackgroundTransparency = 0.35,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(480, 380),
+        Position = UDim2.new(0.5, -240, 0.5, -190),
+        ClipsDescendants = true,
+        Active = true,
+        ZIndex = 1,
+    }, Gui)
+    corner(Main, 8)
+    stroke(Main, Color3.fromRGB(90, 90, 90), 0.6, 1)
+
+    local function syncShadow()
+        local p = Main.Position
+        Shadow.Position = UDim2.new(p.X.Scale, p.X.Offset + 4, p.Y.Scale, p.Y.Offset + 4)
+        Shadow.Size = Main.Size
+    end
+    syncShadow()
+    track(Main:GetPropertyChangedSignal("Position"):Connect(syncShadow))
+    track(Main:GetPropertyChangedSignal("Size"):Connect(syncShadow))
+
+    ---------------------------------------------------------------------
+    -- Notifications
+    ---------------------------------------------------------------------
+    local ToastHolder = new("Frame", {
+        Name = "Toasts",
+        BackgroundTransparency = 1,
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -10, 0, 10),
+        Size = UDim2.fromOffset(220, 300),
+        ZIndex = 100,
+    }, Gui)
+    new("UIListLayout", {
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 6),
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+    }, ToastHolder)
+
+    local toastCount = 0
+    local function Notify(message, isOn)
+        pcall(function()
+            toastCount += 1
+            local toast = new("Frame", {
+                BackgroundColor3 = Color3.fromRGB(40, 40, 40),
+                BackgroundTransparency = 0.2,
+                BorderSizePixel = 0,
+                Size = UDim2.fromOffset(220, 40),
+                LayoutOrder = -toastCount,
+            }, ToastHolder)
+            corner(toast, 6)
+            local strip = new("Frame", {
+                BackgroundColor3 = isOn and GREEN or RED,
+                BorderSizePixel = 0,
+                Size = UDim2.new(0, 4, 1, 0),
+            }, toast)
+            corner(strip, 2)
+            local lbl = new("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(12, 0),
+                Size = UDim2.new(1, -16, 1, 0),
+                Font = Enum.Font.Gotham,
+                TextSize = 13,
+                TextColor3 = WHITE,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextWrapped = true,
+                Text = tostring(message),
+            }, toast)
+            task.delay(2, function()
+                pcall(function()
+                    if not toast.Parent then return end
+                    local info = TweenInfo.new(0.3)
+                    TweenService:Create(toast, info, { BackgroundTransparency = 1 }):Play()
+                    TweenService:Create(strip, info, { BackgroundTransparency = 1 }):Play()
+                    TweenService:Create(lbl, info, { TextTransparency = 1 }):Play()
+                    task.delay(0.35, function()
+                        pcall(function() toast:Destroy() end)
+                    end)
+                end)
+            end)
+        end)
+    end
+
+    ---------------------------------------------------------------------
+    -- ClickCatcher + dropdown registry
+    ---------------------------------------------------------------------
+    local Dropdowns = {}
+
+    local ClickCatcher = new("Frame", {
+        Name = "ClickCatcher",
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Size = UDim2.fromScale(1, 1),
+        Active = true,
+        Visible = false,
+        ZIndex = 50,
+    }, Gui)
+
+    local function closeAll()
+        for _, d in pairs(Dropdowns) do d.Close() end
+        ClickCatcher.Visible = false
+    end
+    track(ClickCatcher.InputBegan:Connect(function(input)
+        if isPress(input) then closeAll() end
+    end))
+
+    ---------------------------------------------------------------------
+    -- Header
+    ---------------------------------------------------------------------
+    local Header = new("Frame", {
+        Name = "Header",
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 35),
+    }, Main)
+
+    new("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(12, 0),
+        Size = UDim2.new(1, -80, 1, 0),
+        Font = Enum.Font.GothamBold,
+        TextSize = 15,
+        TextColor3 = WHITE,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = "🍌 BananaCat Hub",
+    }, Header)
+
+    local MinBtn = new("TextButton", {
+        Name = "Minimize",
+        AutoButtonColor = false,
+        BackgroundColor3 = ROW_HOVER,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(28, 28),
+        Position = UDim2.new(1, -68, 0.5, -14),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        TextColor3 = WHITE,
+        Text = "—",
+    }, Header)
+    corner(MinBtn, 6)
+
+    local CloseBtn = new("TextButton", {
+        Name = "Close",
+        AutoButtonColor = false,
+        BackgroundColor3 = ROW_HOVER,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(28, 28),
+        Position = UDim2.new(1, -36, 0.5, -14),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        TextColor3 = WHITE,
+        Text = "X",
+    }, Header)
+    corner(CloseBtn, 6)
+
+    track(MinBtn.MouseEnter:Connect(function()
+        MinBtn.BackgroundTransparency = 0.1
+    end))
+    track(MinBtn.MouseLeave:Connect(function()
+        MinBtn.BackgroundTransparency = 0.4
+    end))
+    track(CloseBtn.MouseEnter:Connect(function()
+        CloseBtn.BackgroundColor3 = RED
+        CloseBtn.BackgroundTransparency = 0
+    end))
+    track(CloseBtn.MouseLeave:Connect(function()
+        CloseBtn.BackgroundColor3 = ROW_HOVER
+        CloseBtn.BackgroundTransparency = 0.4
+    end))
+
+    -- Drag from header
+    do
+        local dragging, dragStart, startPos = false, nil, nil
+        track(Header.InputBegan:Connect(function(input)
+            if isPress(input) then
+                dragging = true
+                dragStart = input.Position
+                startPos = Main.Position
+                closeAll()
+            end
+        end))
+        track(UserInputService.InputChanged:Connect(function(input)
+            if dragging and isMove(input) then
+                local d = input.Position - dragStart
+                Main.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + d.X,
+                    startPos.Y.Scale, startPos.Y.Offset + d.Y
+                )
+            end
+        end))
+        track(UserInputService.InputEnded:Connect(function(input)
+            if isPress(input) then dragging = false end
+        end))
+    end
+
+    ---------------------------------------------------------------------
+    -- Body: tab bar + pages
+    ---------------------------------------------------------------------
+    local Body = new("Frame", {
+        Name = "Body",
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(0, 35),
+        Size = UDim2.new(1, 0, 1, -35),
+    }, Main)
+
+    local TabBar = new("Frame", {
+        Name = "TabBar",
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 30),
+    }, Body)
+
+    local Underline = new("Frame", {
+        Name = "Underline",
+        BackgroundColor3 = BLUE,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(90, 3),
+        Position = UDim2.fromOffset(10, 27),
+    }, TabBar)
+
+    local PagesHolder = new("Frame", {
+        Name = "Pages",
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(10, 36),
+        Size = UDim2.new(1, -20, 1, -42),
+    }, Body)
+
+    local TabButtons = {}
+    local Pages = {}
+
+    local function makePage(name)
+        local sf = new("ScrollingFrame", {
+            Name = name,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Size = UDim2.new(1, 0, 1, 0),
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 4,
+            ScrollBarImageColor3 = Color3.fromRGB(150, 150, 150),
+            ScrollingDirection = Enum.ScrollingDirection.Y,
+            Visible = false,
+        }, PagesHolder)
+        new("UIListLayout", {
+            Padding = UDim.new(0, 6),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        }, sf)
+        new("UIPadding", {
+            PaddingTop = UDim.new(0, 2),
+            PaddingBottom = UDim.new(0, 4),
+        }, sf)
+        Pages[name] = sf
+        return sf
+    end
+
+    local FishingPage = makePage("Fishing")
+    local MiscPage = makePage("Misc")
+
+    local function selectTab(name)
+        closeAll()
+        for n, b in pairs(TabButtons) do
+            local active = (n == name)
+            b.TextColor3 = active and WHITE or Color3.fromRGB(150, 150, 150)
+            Pages[n].Visible = active
+        end
+        local b = TabButtons[name]
+        if b then
+            TweenService:Create(Underline, TweenInfo.new(0.15), {
+                Position = UDim2.fromOffset(b.Position.X.Offset, 27),
+            }):Play()
+        end
+    end
+
+    local function makeTab(name, x)
+        local b = new("TextButton", {
+            Name = name .. "Tab",
+            AutoButtonColor = false,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(90, 27),
+            Position = UDim2.fromOffset(x, 0),
+            Font = Enum.Font.GothamBold,
+            TextSize = 14,
+            TextColor3 = Color3.fromRGB(150, 150, 150),
+            Text = name,
+        }, TabBar)
+        TabButtons[name] = b
+        track(b.MouseButton1Click:Connect(function() selectTab(name) end))
+    end
+    makeTab("Fishing", 10)
+    makeTab("Misc", 100)
+
+    ---------------------------------------------------------------------
+    -- Toggle component
+    ---------------------------------------------------------------------
+    local ToggleStates = {}
+
+    local function createToggle(page, name, configKey, order, onChange)
+        local row = new("TextButton", {
+            Name = name,
+            AutoButtonColor = false,
+            Text = "",
+            BackgroundColor3 = ROW_BG,
+            BackgroundTransparency = 0.4,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(440, 34),
+            LayoutOrder = order,
+        }, page)
+        corner(row, 6)
+
+        new("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(12, 0),
+            Size = UDim2.new(1, -70, 1, 0),
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = WHITE,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Text = name,
+        }, row)
+
+        local pill = new("Frame", {
+            BackgroundColor3 = GRAY,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(36, 18),
+            Position = UDim2.new(1, -46, 0.5, -9),
+        }, row)
+        corner(pill, 9)
+        local knob = new("Frame", {
+            BackgroundColor3 = WHITE,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(14, 14),
+            Position = UDim2.fromOffset(2, 2),
+        }, pill)
+        corner(knob, 7)
+
+        local state = false
+        local function render()
+            local info = TweenInfo.new(0.12)
+            TweenService:Create(pill, info, {
+                BackgroundColor3 = state and GREEN or GRAY,
+            }):Play()
+            TweenService:Create(knob, info, {
+                Position = state and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2),
+            }):Play()
+        end
+
+        local function Set(v)
+            state = v and true or false
+            Config[configKey] = state
+            render()
+            if onChange then pcall(onChange, state) end
+        end
+
+        track(row.MouseButton1Click:Connect(function()
+            Set(not state)
+            Notify(name .. (state and " ON" or " OFF"), state)
+        end))
+        track(row.MouseEnter:Connect(function() row.BackgroundColor3 = ROW_HOVER end))
+        track(row.MouseLeave:Connect(function() row.BackgroundColor3 = ROW_BG end))
+
+        ToggleStates[name] = {
+            Set = Set,
+            Get = function() return state end,
+            Button = row,
+        }
+    end
+
+    ---------------------------------------------------------------------
+    -- Dropdown component (list lives under ScreenGui, never clipped)
+    ---------------------------------------------------------------------
+    local function createDropdown(page, name, configKey, order)
+        local button = new("TextButton", {
+            Name = name,
+            AutoButtonColor = false,
+            Text = "",
+            BackgroundColor3 = ROW_BG,
+            BackgroundTransparency = 0.4,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(440, 34),
+            LayoutOrder = order,
+        }, page)
+        corner(button, 6)
+
+        new("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(12, 0),
+            Size = UDim2.fromOffset(120, 34),
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = WHITE,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Text = name,
+        }, button)
+
+        local valueLabel = new("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(136, 0),
+            Size = UDim2.new(1, -170, 1, 0),
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextColor3 = Color3.fromRGB(180, 180, 180),
+            TextXAlignment = Enum.TextXAlignment.Right,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            Text = "None",
+        }, button)
+
+        local arrow = new("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(1, -26, 0, 0),
+            Size = UDim2.fromOffset(20, 34),
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            TextColor3 = WHITE,
+            Text = "▼",
+        }, button)
+
+        local list = new("Frame", {
+            Name = name .. "_List",
+            BackgroundColor3 = Color3.fromRGB(35, 35, 35),
+            BackgroundTransparency = 0.05,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(440, 150),
+            Visible = false,
+            Active = true,
+            ZIndex = 51,
+        }, Gui)
+        corner(list, 6)
+        stroke(list, Color3.fromRGB(90, 90, 90), 0.3, 1)
+
+        local scroll = new("ScrollingFrame", {
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Size = UDim2.fromScale(1, 1),
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 3,
+            ScrollingDirection = Enum.ScrollingDirection.Y,
+        }, list)
+        new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
+
+        local isOpen = false
+        local callback = nil
+
+        local function Close()
+            if not isOpen then return end
+            isOpen = false
+            list.Visible = false
+            TweenService:Create(arrow, TweenInfo.new(0.12), { Rotation = 0 }):Play()
+        end
+
+        local function Open()
+            closeAll()
+            local pos = button.AbsolutePosition
+            local size = button.AbsoluteSize
+            local y = pos.Y + size.Y + 4
+            if y + 150 > Gui.AbsoluteSize.Y then
+                y = math.max(0, pos.Y - 150 - 4) -- flip above if it would run off-screen
+            end
+            list.Position = UDim2.fromOffset(pos.X, y)
+            list.Size = UDim2.fromOffset(size.X, 150)
+            list.Visible = true
+            ClickCatcher.Visible = true
+            isOpen = true
+            TweenService:Create(arrow, TweenInfo.new(0.12), { Rotation = 180 }):Play()
+        end
+
+        local function select(item)
+            Config[configKey] = item
+            valueLabel.Text = tostring(item)
+            if callback then pcall(callback, item) end
+            closeAll()
+        end
+
+        local function SetItems(items, cb)
+            callback = cb
+            for _, c in ipairs(scroll:GetChildren()) do
+                if c:IsA("TextButton") then c:Destroy() end
+            end
+            for i, item in ipairs(items or {}) do
+                local it = new("TextButton", {
+                    AutoButtonColor = false,
+                    BackgroundColor3 = BLUE,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 30),
+                    LayoutOrder = i,
+                    Font = Enum.Font.Gotham,
+                    TextSize = 13,
+                    TextColor3 = WHITE,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Text = "  " .. tostring(item),
+                }, scroll)
+                it.MouseEnter:Connect(function() it.BackgroundTransparency = 0.2 end)
+                it.MouseLeave:Connect(function() it.BackgroundTransparency = 1 end)
+                it.MouseButton1Click:Connect(function() select(item) end)
+            end
+        end
+
+        track(button.MouseButton1Click:Connect(function()
+            if isOpen then closeAll() else Open() end
+        end))
+        track(button.MouseEnter:Connect(function() button.BackgroundColor3 = ROW_HOVER end))
+        track(button.MouseLeave:Connect(function() button.BackgroundColor3 = ROW_BG end))
+
+        Dropdowns[name] = {
+            SetItems = SetItems,
+            Frame = list,
+            Button = button,
+            Close = Close,
+        }
+    end
+
+    ---------------------------------------------------------------------
+    -- Fishing tab
+    ---------------------------------------------------------------------
+    createToggle(FishingPage, "Auto Fishing", "AutoFishing", 1)
+    createToggle(FishingPage, "Auto Fishing Quest", "AutoFishingQuest", 2)
+    createToggle(FishingPage, "Auto Sell Fish", "AutoSellFish", 3)
+    createToggle(FishingPage, "Auto Buy Bait", "AutoBuyBait", 4)
+    createDropdown(FishingPage, "Select Rod", "SelectedRod", 5)
+    createDropdown(FishingPage, "Select Bait", "SelectedBait", 6)
+
+    ---------------------------------------------------------------------
+    -- Misc tab (Speed Boost + hidden slider)
+    ---------------------------------------------------------------------
+    local SliderFrame = new("Frame", {
+        Name = "SpeedSlider",
+        BackgroundColor3 = ROW_BG,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(440, 34),
+        LayoutOrder = 2,
+        Visible = false,
+    }, MiscPage)
+    corner(SliderFrame, 6)
+
+    local Track = new("Frame", {
+        Name = "Track",
+        BackgroundColor3 = Color3.fromRGB(60, 60, 60),
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(400, 8),
+        Position = UDim2.fromOffset(8, 13),
+    }, SliderFrame)
+    corner(Track, 10)
+
+    local Fill = new("Frame", {
+        Name = "Fill",
+        BackgroundColor3 = BLUE,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0.4, 0, 1, 0),
+    }, Track)
+    corner(Fill, 10)
+
+    local Knob = new("Frame", {
+        Name = "Knob",
+        BackgroundColor3 = WHITE,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.new(0.4, -8, 0.5, -8),
+    }, Track)
+    corner(Knob, 8)
+
+    local ValueLabel = new("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(410, 0),
+        Size = UDim2.fromOffset(28, 34),
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = WHITE,
+        Text = "50",
+    }, SliderFrame)
+
+    local function setSpeedValue(v)
+        v = math.clamp(math.floor(v + 0.5), 16, 100)
+        Config.SpeedValue = v
+        local rel = (v - 16) / 84
+        Fill.Size = UDim2.new(rel, 0, 1, 0)
+        Knob.Position = UDim2.new(rel, -8, 0.5, -8)
+        ValueLabel.Text = tostring(v)
+    end
+    setSpeedValue(Config.SpeedValue)
+
+    local function setSliderFromX(x)
+        local w = Track.AbsoluteSize.X
+        if w <= 0 then return end
+        local rel = math.clamp((x - Track.AbsolutePosition.X) / w, 0, 1)
+        setSpeedValue(16 + rel * 84)
+    end
+
+    do
+        local sliding = false
+        track(SliderFrame.InputBegan:Connect(function(input)
+            if isPress(input) then
+                sliding = true
+                MiscPage.ScrollingEnabled = false
+                setSliderFromX(input.Position.X)
+            end
+        end))
+        track(UserInputService.InputChanged:Connect(function(input)
+            if sliding and isMove(input) then
+                setSliderFromX(input.Position.X)
+            end
+        end))
+        track(UserInputService.InputEnded:Connect(function(input)
+            if sliding and isPress(input) then
+                sliding = false
+                MiscPage.ScrollingEnabled = true
+            end
+        end))
+    end
+
+    createToggle(MiscPage, "Speed Boost", "SpeedBoost", 1, function(on)
+        SliderFrame.Visible = on
+    end)
+    createToggle(MiscPage, "Auto Farm Level", "AutoFarmLevel", 3)
+    createToggle(MiscPage, "ESP (Highlight Enemies)", "ESP", 4)
+
+    ---------------------------------------------------------------------
+    -- Minimize / Close
+    ---------------------------------------------------------------------
+    local minimized = false
+    track(MinBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        closeAll()
+        if minimized then
+            Body.Visible = false
+            MinBtn.Text = "+"
+            TweenService:Create(Main, TweenInfo.new(0.15), {
+                Size = UDim2.fromOffset(480, 35),
+            }):Play()
+        else
+            Body.Visible = true
+            MinBtn.Text = "—"
+            TweenService:Create(Main, TweenInfo.new(0.15), {
+                Size = UDim2.fromOffset(480, 380),
+            }):Play()
+        end
+    end))
+
+    ---------------------------------------------------------------------
+    -- Public API
+    ---------------------------------------------------------------------
+    local API
+    local destroyed = false
+
+    local function SetDropdownItems(name, items, callback)
+        local d = Dropdowns[name]
+        if d then d.SetItems(items, callback) end
+    end
+
+    local function SetToggle(name, value)
+        local t = ToggleStates[name]
+        if t then t.Set(value) end
+    end
+
+    local function Destroy()
+        if destroyed then return end
+        destroyed = true
+        for _, c in ipairs(Connections) do
+            pcall(function() c:Disconnect() end)
+        end
+        table.clear(Connections)
+        pcall(function() Gui:Destroy() end)
+        for k, v in pairs(Config) do
+            if type(v) == "boolean" then Config[k] = false end
+        end
+        if _G.BananaCatUI == API then _G.BananaCatUI = nil end
+    end
+
+    track(CloseBtn.MouseButton1Click:Connect(function()
+        if _G.BananaCatCore and _G.BananaCatCore.StopAll then
+            pcall(_G.BananaCatCore.StopAll)
+        end
+        Destroy()
+    end))
+
+    API = {
+        Config = Config,
+        Notify = Notify,
+        SetDropdownItems = SetDropdownItems,
+        SetToggle = SetToggle,
+        Destroy = Destroy,
+        ToggleStates = ToggleStates,
+        Dropdowns = Dropdowns,
+        Gui = Gui,
+    }
+    _G.BananaCatUI = API
+
+    selectTab("Fishing")
+end
+
+-- PART 2: Core
+do
+    if _G.BananaCatCore and _G.BananaCatCore.StopAll then
+        pcall(_G.BananaCatCore.StopAll)
+    end
+
+    local t = 0
+    while not _G.BananaCatUI and t < 10 do
+        task.wait(0.1)
+        t += 0.1
+    end
+    if not _G.BananaCatUI then
+        warn("[Core] UI not found")
+        return
+    end
+
+    local UI = _G.BananaCatUI
+    local Config = UI.Config
+    local Notify = UI.Notify
+    local SetDropdownItems = UI.SetDropdownItems
+    local OwnGui = UI.Gui
+
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local TweenService = game:GetService("TweenService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local VirtualUser = game:GetService("VirtualUser")
+    local UserInputService = game:GetService("UserInputService")
+    local LocalPlayer = Players.LocalPlayer
+
+    local Running = true
+    local Connections = {}
+
+    ---------------------------------------------------------------------
+    -- Helpers
+    ---------------------------------------------------------------------
+    local function notify(msg, on)
+        if type(Notify) == "function" then pcall(Notify, msg, on) end
+    end
+
+    local function getChar()
+        return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    end
+    local function getHum()
+        local ok, r = pcall(function()
+            return getChar():FindFirstChildOfClass("Humanoid")
+        end)
+        return ok and r or nil
+    end
+    local function getRoot()
+        local ok, r = pcall(function()
+            return getChar():FindFirstChild("HumanoidRootPart")
+        end)
+        return ok and r or nil
+    end
+    local function isAlive()
+        local h = getHum()
+        return h ~= nil and h.Health > 0
+    end
+
+    local function getBackpack()
+        return LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:WaitForChild("Backpack", 5)
+    end
+
+    local function findTool(name)
+        if not name then return nil end
+        local ok, tool = pcall(function()
+            local bp = getBackpack()
+            local found = bp and bp:FindFirstChild(name)
+            if found then return found end
+            local char = LocalPlayer.Character
+            return char and char:FindFirstChild(name)
+        end)
+        return ok and tool or nil
+    end
+
+    local function playerGui()
+        return LocalPlayer:WaitForChild("PlayerGui", 5)
+    end
+
+    -- Scans every ScreenGui except our own hub. fn(inst) -> true stops the scan.
+    local function scanPlayerGui(fn)
+        local pg = playerGui()
+        if not pg then return nil end
+        for _, g in ipairs(pg:GetChildren()) do
+            if g ~= OwnGui then
+                if fn(g) then return g end
+                for _, d in ipairs(g:GetDescendants()) do
+                    if fn(d) then return d end
+                end
+            end
+        end
+        return nil
+    end
+
+    ---------------------------------------------------------------------
+    -- Remote cache
+    ---------------------------------------------------------------------
+    local RemoteCache = {}
+
+    local function isRemote(r)
+        return r ~= nil and (r:IsA("RemoteEvent") or r:IsA("RemoteFunction"))
+    end
+
+    local function searchShallow(root, names)
+        for _, n in ipairs(names) do
+            local r = root:FindFirstChild(n)
+            if isRemote(r) then return r end
+        end
+        for _, n in ipairs(names) do
+            for _, child in ipairs(root:GetChildren()) do
+                local r = child:FindFirstChild(n)
+                if isRemote(r) then return r end
+            end
+        end
+        return nil
+    end
+
+    local function findRemote(names)
+        local key = table.concat(names, "|")
+        local entry = RemoteCache[key]
+        if entry then
+            if entry.remote and entry.remote.Parent then
+                return entry.remote
+            end
+            if not entry.remote and os.clock() < entry.retryAt then
+                return nil
+            end
+        end
+
+        local found = nil
+        pcall(function()
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            if remotes then
+                found = searchShallow(remotes, names)
+            end
+            if not found then
+                -- ONE recursive fallback; result (incl. nil) is cached below
+                for _, n in ipairs(names) do
+                    local r = ReplicatedStorage:FindFirstChild(n, true)
+                    if isRemote(r) then
+                        found = r
+                        break
+                    end
+                end
+            end
+        end)
+
+        if found then
+            RemoteCache[key] = { remote = found }
+        else
+            RemoteCache[key] = { remote = nil, retryAt = os.clock() + 60 }
+        end
+        return found
+    end
+
+    local function fire(remote, ...)
+        if not remote then return false end
+        local args = { ... }
+        local ok = pcall(function()
+            if remote:IsA("RemoteEvent") then
+                remote:FireServer(table.unpack(args))
+            else
+                remote:InvokeServer(table.unpack(args))
+            end
+        end)
+        return ok
+    end
+
+    -- Cached workspace lookups (NPCs / spawn), with a 60s miss cooldown
+    local npcCache = {}
+    local function findNPC(names)
+        local key = table.concat(names, "|")
+        local c = npcCache[key]
+        if c then
+            if c.inst and c.inst.Parent then return c.inst end
+            if not c.inst and os.clock() < c.retryAt then return nil end
+        end
+        local found = nil
+        pcall(function()
+            for _, n in ipairs(names) do
+                local r = workspace:FindFirstChild(n, true)
+                if r then
+                    found = r
+                    break
+                end
+            end
+        end)
+        npcCache[key] = { inst = found, retryAt = os.clock() + 60 }
+        return found
+    end
+
+    local spawnCache = nil
+    local spawnRetry = 0
+    local function findSpawn()
+        if spawnCache and spawnCache.Parent then return spawnCache end
+        if os.clock() < spawnRetry then return nil end
+        pcall(function()
+            spawnCache = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+        end)
+        if not spawnCache then spawnRetry = os.clock() + 60 end
+        return spawnCache
+    end
+
+    ---------------------------------------------------------------------
+    -- Movement / input helpers
+    ---------------------------------------------------------------------
+    local function tweenTo(cf, duration)
+        local root = getRoot()
+        if not root then return end
+        pcall(function()
+            local tw = TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = cf })
+            tw:Play()
+            -- caller is responsible for timing waits
+        end)
+    end
+
+    local function screenCenter()
+        local cam = workspace.CurrentCamera
+        if cam then
+            local vp = cam.ViewportSize
+            return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+        end
+        return UserInputService:GetMouseLocation()
+    end
+
+    local function clickAt(pos)
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:Button1Down(pos)
+            task.wait(0.05)
+            VirtualUser:Button1Up(pos)
+        end)
+    end
+
+    local function activatePrompt(prompt)
+        if type(fireproximityprompt) == "function" then
+            local ok = pcall(fireproximityprompt, prompt)
+            if ok then return true end
+        end
+        local pos = nil
+        pcall(function()
+            local part = prompt.Parent
+            local cam = workspace.CurrentCamera
+            if part and part:IsA("BasePart") and cam then
+                local v, onScreen = cam:WorldToViewportPoint(part.Position)
+                if onScreen then pos = Vector2.new(v.X, v.Y) end
+            end
+        end)
+        clickAt(pos or screenCenter())
+        return true
+    end
+
+    local function activateButton(btn)
+        if type(firesignal) == "function" then
+            local ok = pcall(function() firesignal(btn.MouseButton1Click) end)
+            if ok then return true end
+        end
+        local pos = nil
+        pcall(function()
+            pos = btn.AbsolutePosition + (btn.AbsoluteSize * 0.5)
+        end)
+        clickAt(pos or screenCenter())
+        return true
+    end
+
+    ---------------------------------------------------------------------
+    -- Anti-AFK
+    ---------------------------------------------------------------------
+    table.insert(Connections, LocalPlayer.Idled:Connect(function()
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new(0, 0))
+        end)
+    end))
+
+    ---------------------------------------------------------------------
+    -- STEP 1: Dropdowns
+    ---------------------------------------------------------------------
+    local RODS = {
+        "Basic Rod", "Bamboo Rod", "Triple Rod", "Steel Rod",
+        "Magnetic Rod", "Destroyer Rod", "Cursed Rod", "Rabbit Rod",
+        "Rod of the Deep", "Serpent Rod",
+    }
+    local BAITS = {
+        "Basic Bait", "Good Bait", "Great Bait", "Super Bait",
+        "Mysterious Bait", "Corrupted Bait",
+    }
+
+    pcall(SetDropdownItems, "Select Rod", RODS, function(item)
+        Config.SelectedRod = item
+    end)
+    pcall(SetDropdownItems, "Select Bait", BAITS, function(item)
+        Config.SelectedBait = item
+    end)
+    notify("Dropdowns ready", true)
+
+    ---------------------------------------------------------------------
+    -- STEP 2: Speed Boost
+    ---------------------------------------------------------------------
+    local OriginalWalkSpeed = 16
+
+    local function captureOriginalSpeed()
+        local hum = getHum()
+        if hum and not Config.SpeedBoost then
+            OriginalWalkSpeed = hum.WalkSpeed
+        end
+    end
+
+    task.spawn(function()
+        pcall(captureOriginalSpeed)
+    end)
+
+    local function applySpeed()
+        local hum = getHum()
+        if hum and hum.WalkSpeed ~= Config.SpeedValue then
+            hum.WalkSpeed = Config.SpeedValue
+        end
+    end
+
+    table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if not Running then return end
+        if Config.SpeedBoost then
+            pcall(applySpeed)
+        else
+            pcall(captureOriginalSpeed)
+        end
+    end))
+
+    task.spawn(function()
+        local wasOn = false
+        while Running and task.wait(0.2) do
+            if Config.SpeedBoost then
+                wasOn = true
+                pcall(applySpeed)
+            elseif wasOn then
+                wasOn = false
+                local hum = getHum()
+                if hum then pcall(function() hum.WalkSpeed = OriginalWalkSpeed end) end
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------
+    -- STEP 3: ESP
+    ---------------------------------------------------------------------
+    local espConnected = false
+    local espConn = nil
+
+    local function highlightModel(model)
+        pcall(function()
+            if model:IsA("Model")
+                and model:FindFirstChildOfClass("Humanoid")
+                and not model:FindFirstChild("BC_Highlight") then
+                local h = Instance.new("Highlight")
+                h.Name = "BC_Highlight"
+                h.FillColor = Color3.fromRGB(255, 60, 60)
+                h.OutlineColor = Color3.fromRGB(255, 255, 255)
+                h.FillTransparency = 0.5
+                h.OutlineTransparency = 0
+                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                h.Parent = model
+            end
+        end)
+    end
+
+    local function clearHighlights()
+        pcall(function()
+            local enemies = workspace:FindFirstChild("Enemies")
+            if not enemies then return end
+            for _, m in ipairs(enemies:GetChildren()) do
+                local h = m:FindFirstChild("BC_Highlight")
+                if h then h:Destroy() end
+            end
+        end)
+    end
+
+    local function enableESP()
+        if espConnected then return end
+        local enemies = workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+        espConnected = true
+        for _, m in ipairs(enemies:GetChildren()) do highlightModel(m) end
+        espConn = enemies.ChildAdded:Connect(function(m)
+            task.wait(0.2)
+            if Config.ESP then highlightModel(m) end
+        end)
+        table.insert(Connections, espConn)
+    end
+
+    local function disableESP()
+        if not espConnected then return end
+        espConnected = false
+        if espConn then
+            pcall(function() espConn:Disconnect() end)
+            espConn = nil
+        end
+        clearHighlights()
+    end
+
+    task.spawn(function()
+        while Running and task.wait(0.5) do
+            if Config.ESP then
+                pcall(enableESP)
+                pcall(function()
+                    local enemies = workspace:FindFirstChild("Enemies")
+                    if enemies then
+                        for _, m in ipairs(enemies:GetChildren()) do highlightModel(m) end
+                    end
+                end)
+            else
+                pcall(disableESP)
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------
+    -- Shared SELL logic
+    ---------------------------------------------------------------------
+    local function sellFish()
+        -- FALLBACK: remote names are guesses; pcall keeps this safe
+        local remote = findRemote({ "SellAllFish", "SellFish", "FishSell" })
+        if remote then
+            fire(remote)
+            return true
+        end
+        local ok = pcall(function()
+            local npc = findNPC({ "Fish Merchant", "Merchant", "Fish Seller" })
+            if npc then
+                local part = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    tweenTo(part.CFrame * CFrame.new(0, 0, 4), 1)
+                    task.wait(1)
+                    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt then activatePrompt(prompt) end
+                end
+            end
+        end)
+        return ok
+    end
+
+    ---------------------------------------------------------------------
+    -- STEP 4: Auto Fishing state machine
+    ---------------------------------------------------------------------
+    local currentState = "IDLE"
+    local catchCount = 0
+    local biteGui = nil
+
+    local cachedFishingGui = nil
+    local lastGuiScan = 0
+    local guiCacheConns = {}
+    local cachedFishingPrompt = nil
+
+    local function stopFishing(reason)
+        Config.AutoFishing = false
+        currentState = "IDLE"
+        if reason then notify(reason, false) end
+        pcall(function()
+            if UI.SetToggle then UI.SetToggle("Auto Fishing", false) end
+        end)
+    end
+
+    local function equipRod()
+        local rod = findTool(Config.SelectedRod)
+        if not rod then return nil end
+        local hum = getHum()
+        if hum and rod.Parent ~= LocalPlayer.Character then
+            pcall(function() hum:EquipTool(rod) end)
+            task.wait(0.2)
+        end
+        return rod
+    end
+
+    local States = {}
+
+    States.IDLE = function()
+        if not Config.AutoFishing then return end
+        currentState = "EQUIP_ROD"
+    end
+
+    States.EQUIP_ROD = function()
+        if not Config.AutoFishing then return end
+        if not Config.SelectedRod then
+            stopFishing("Select a rod first")
+            return
+        end
+        if not findTool(Config.SelectedRod) then
+            stopFishing("Rod not in backpack")
+            return
+        end
+        equipRod()
+        currentState = "BUY_BAIT"
+    end
+
+    States.BUY_BAIT = function()
+        if not Config.AutoFishing then return end
+        if not Config.AutoBuyBait or not Config.SelectedBait then
+            currentState = "CAST"
+            return
+        end
+        if findTool(Config.SelectedBait) then
+            currentState = "CAST"
+            return
+        end
+        -- FALLBACK: shop remote name uncertain
+        local shop = findRemote({ "BuyItem", "Purchase", "Shop", "BuyBait" })
+        if shop then
+            fire(shop, "Bait", Config.SelectedBait, 1)
+        end
+        task.wait(0.5)
+        if not findTool(Config.SelectedBait) then
+            notify("Bait purchase failed", false)
+        end
+        currentState = "CAST"
+    end
+
+    States.CAST = function()
+        if not Config.AutoFishing then return end
+        if not isAlive() then
+            task.wait(1)
+            return
+        end
+        if not equipRod() then
+            stopFishing("Rod not in backpack")
+            return
+        end
+
+        local done = false
+        pcall(function()
+            if cachedFishingPrompt and cachedFishingPrompt.Parent then
+                activatePrompt(cachedFishingPrompt)
+                done = true
+                return
+            end
+            cachedFishingPrompt = nil
+
+            local root = getRoot()
+            if not root then return end
+            local parts = workspace:GetPartBoundsInRadius(root.Position, 30)
+            for _, part in ipairs(parts) do
+                local p = part:FindFirstChildOfClass("ProximityPrompt")
+                if p and p.ActionText:lower():find("fish") then
+                    cachedFishingPrompt = p
+                    activatePrompt(p)
+                    done = true
+                    break
+                end
+            end
+        end)
+        -- FALLBACK: remote route
+        if not done then
+            local rem = findRemote({ "FishingEvent", "Fishing", "FishEvent" })
+            if rem then done = fire(rem, "Cast") end
+        end
+        -- FALLBACK: tool activation
+        if not done then
+            pcall(function()
+                local rod = findTool(Config.SelectedRod)
+                if rod and rod.Parent == LocalPlayer.Character then rod:Activate() end
+            end)
+        end
+
+        task.wait(math.random(20, 40) / 10)
+        currentState = "WAIT_BITE"
+    end
+
+    local function guiVisible(g)
+        if g:IsA("ScreenGui") then return g.Enabled end
+        local ok, v = pcall(function() return g.Visible end)
+        if ok and v ~= nil then return v end
+        return true
+    end
+
+    local function cacheFishingGui(inst)
+        cachedFishingGui = inst
+        for _, c in ipairs(guiCacheConns) do pcall(function() c:Disconnect() end) end
+        guiCacheConns = {}
+        local function clear()
+            if cachedFishingGui == inst then
+                cachedFishingGui = nil
+                lastGuiScan = 0
+            end
+        end
+        table.insert(guiCacheConns, inst.Destroying:Connect(clear))
+        table.insert(guiCacheConns, inst.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then clear() end
+        end))
+    end
+
+    local function detectBite()
+        if cachedFishingGui then
+            if cachedFishingGui.Parent then
+                if guiVisible(cachedFishingGui) then
+                    return cachedFishingGui
+                end
+                return nil
+            end
+            cachedFishingGui = nil
+            lastGuiScan = 0
+        end
+
+        if os.clock() - lastGuiScan < 1 then return nil end
+        lastGuiScan = os.clock()
+
+        local candidate = nil
+        pcall(function()
+            candidate = scanPlayerGui(function(d)
+                return d.Name == "FishingGui" or (d:IsA("TextLabel") and d.Text == "!")
+            end)
+        end)
+
+        if candidate then
+            cacheFishingGui(candidate)
+            if guiVisible(candidate) then return candidate end
+        end
+        return nil
+    end
+
+    States.WAIT_BITE = function()
+        local start = os.clock()
+        biteGui = nil
+        while os.clock() - start < 30 do
+            if not Config.AutoFishing or not Running then
+                currentState = "IDLE"
+                return
+            end
+            local g = detectBite()
+            if g then
+                biteGui = g
+                currentState = "CATCH"
+                return
+            end
+            task.wait(0.25)
+        end
+        currentState = "CAST"
+    end
+
+    States.CATCH = function()
+        if not Config.AutoFishing then return end
+        local caught = false
+        pcall(function()
+            local target = biteGui
+            if target and target.Parent then
+                local btn = nil
+                if target:IsA("GuiButton") then
+                    btn = target
+                else
+                    btn = target:FindFirstChildWhichIsA("TextButton", true)
+                        or target:FindFirstChildWhichIsA("ImageButton", true)
+                end
+                if btn then
+                    activateButton(btn)
+                    caught = true
+                end
+            end
+        end)
+        if not caught then
+            local rem = findRemote({ "FishingEvent", "Fishing", "FishEvent" })
+            if rem then caught = fire(rem, "Catch") end
+        end
+        task.wait(math.random(10, 20) / 10)
+        catchCount += 1
+        biteGui = nil
+        if catchCount >= 20 and Config.AutoSellFish then
+            currentState = "SELL"
+        else
+            currentState = "CAST"
+        end
+    end
+
+    States.SELL = function()
+        if not Config.AutoFishing then return end
+        sellFish()
+        task.wait(1)
+        catchCount = 0
+        currentState = Config.AutoFishing and "CAST" or "IDLE"
+    end
+
+    task.spawn(function()
+        while Running and task.wait(0.1) do
+            if not Config.AutoFishing then
+                currentState = "IDLE"
+                -- preserve counter across toggles
+            else
+                local fn = States[currentState]
+                if fn then
+                    local ok, err = pcall(fn)
+                    if not ok then
+                        warn("[Core] Fishing state error: " .. tostring(err))
+                        task.wait(1)
+                    end
+                else
+                    currentState = "IDLE"
+                end
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------
+    -- STEP 5: Auto Fishing Quest
+    ---------------------------------------------------------------------
+    task.spawn(function()
+        while Running and task.wait(1) do
+            if Config.AutoFishingQuest then
+                pcall(function()
+                    local remote = findRemote({ "QuestEvent", "Quest", "CommF_" })
+                    local complete = false
+                    local active = false
+
+                    scanPlayerGui(function(d)
+                        if d:IsA("TextLabel") and d.Visible then
+                            local txt = d.Text:lower()
+                            if txt:find("fish") and txt:find("quest") then
+                                active = true
+                            end
+                            if active and txt:find("complete") then
+                                complete = true
+                                return true
+                            end
+                        end
+                        return false
+                    end)
+
+                    if complete then
+                        if remote then
+                            -- FALLBACK: remote args uncertain
+                            fire(remote, "TurnIn")
+                        else
+                            local npc = findNPC({ "Fish Quest Giver", "Fishing Quest NPC" })
+                            if npc then
+                                local part = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart", true)
+                                if part then
+                                    tweenTo(part.CFrame * CFrame.new(0, 0, 4), 1)
+                                    task.wait(1)
+                                    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                    if prompt then activatePrompt(prompt) end
+                                end
+                            end
+                        end
+                    elseif not active then
+                        if remote then fire(remote, "Accept") end
+                    end
+                end)
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------
+    -- STEP 6: Standalone Auto Sell
+    ---------------------------------------------------------------------
+    task.spawn(function()
+        local last = 0
+        while Running and task.wait(1) do
+            if Config.AutoSellFish and not Config.AutoFishing then
+                if os.clock() - last >= 30 then
+                    last = os.clock()
+                    pcall(sellFish)
+                end
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------
+    -- STEP 7: Auto Farm Level
+    ---------------------------------------------------------------------
+    local function getLevel()
+        local ok, lvl = pcall(function()
+            return LocalPlayer:WaitForChild("Data", 5)
+                :WaitForChild("Level", 5).Value
+        end)
+        return ok and lvl or 1
+    end
+
+    local function enemyLevel(model)
+        local lv = nil
+        pcall(function()
+            local tag = model:FindFirstChild("Level")
+            if tag and tag:IsA("ValueBase") then
+                lv = tag.Value
+                return
+            end
+            local n = model.Name:match("[Ll]v%.?%s*(%d+)")
+            if n then lv = tonumber(n) end
+        end)
+        return lv
+    end
+
+    local function nearestEnemy(playerLevel)
+        local root = getRoot()
+        if not root then return nil end
+        local enemies = workspace:FindFirstChild("Enemies")
+        if not enemies then return nil end
+        local best, bestDist = nil, math.huge
+        for _, m in ipairs(enemies:GetChildren()) do
+            pcall(function()
+                local hum = m:FindFirstChildOfClass("Humanoid")
+                local hrp = m:FindFirstChild("HumanoidRootPart")
+                if hum and hrp and hum.Health > 0 then
+                    local lv = enemyLevel(m)
+                    if lv == nil or lv <= playerLevel + 5 then
+                        local d = (hrp.Position - root.Position).Magnitude
+                        if d < bestDist then
+                            best, bestDist = m, d
+                        end
+                    end
+                end
+            end)
+        end
+        return best
+    end
+
+    local function attack()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local tool = char and char:FindFirstChildOfClass("Tool")
+            if tool then tool:Activate() end
+        end)
+        clickAt(screenCenter())
+    end
+
+    task.spawn(function()
+        while Running and task.wait(0.1) do
+            if Config.AutoFarmLevel then
+                if not isAlive() then
+                    task.wait(1)
+                else
+                    local target = nearestEnemy(getLevel())
+                    if target then
+                        local hrp = target:FindFirstChild("HumanoidRootPart")
+                        local hum = target:FindFirstChildOfClass("Humanoid")
+                        if hrp and hum then
+                            while Running and Config.AutoFarmLevel and isAlive()
+                                and hum.Health > 0 and hrp.Parent do
+                                tweenTo(hrp.CFrame * CFrame.new(0, 0, 3), 0.15)
+                                attack()
+                                task.wait(0.1)
+                            end
+                        end
+                    else
+                        pcall(function()
+                            local sp = findSpawn()
+                            if sp then
+                                tweenTo(sp.CFrame * CFrame.new(0, 4, 0), 0.5)
+                            end
+                        end)
+                        task.wait(2)
+                    end
+                end
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------
+    -- STEP 8: Cleanup
+    ---------------------------------------------------------------------
+    _G.BananaCatCore = {
+        StopAll = function()
+            Running = false
+            for k in pairs(Config) do
+                if type(Config[k]) == "boolean" then Config[k] = false end
+            end
+            -- keep the UI toggles in sync with the cleared flags
+            pcall(function()
+                for _, st in pairs(UI.ToggleStates or {}) do
+                    pcall(st.Set, false)
+                end
+            end)
+            for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+            for _, c in ipairs(guiCacheConns) do pcall(function() c:Disconnect() end) end
+            clearHighlights()
+            local hum = getHum()
+            if hum then pcall(function() hum.WalkSpeed = OriginalWalkSpeed end) end
+            print("[BananaCat Core] Stopped.")
+        end,
+    }
+
+    print("[BananaCat Hub] Loaded successfully")
+end
